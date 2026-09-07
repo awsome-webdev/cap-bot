@@ -143,7 +143,8 @@ class OrchestratorManager:
         self.node_command_queues = {}
         self.worker_counter = 0
         self.logs = deque(maxlen=200)
-        self.lock = threading.Lock()
+        # CRITICAL FIX: Use RLock (Reentrant Lock) to prevent deadlocks when calling lock-protected methods internally
+        self.lock = threading.RLock()
         
         # Historical rate metrics tracking (for Chart.js)
         self.history_timestamps = deque(maxlen=30)
@@ -306,7 +307,7 @@ class OrchestratorManager:
 
                 # Prune nodes inactive for > 10 seconds
                 now = time.time()
-                dead_nodes = [nid for nid, nd in self.remote_nodes.items() if now - nd["last_seen"] > 10]
+                dead_nodes = [nid for nid, nd in list(self.remote_nodes.items()) if now - nd["last_seen"] > 10]
                 for d_node in dead_nodes:
                     del self.remote_nodes[d_node]
                     if d_node in self.node_command_queues:
@@ -315,24 +316,24 @@ class OrchestratorManager:
 
     def get_overall_rate_per_min(self):
         with self.lock:
-            local_rpm = sum(w.get_rate_per_min() for w in self.workers.values())
+            local_rpm = sum(w.get_rate_per_min() for w in list(self.workers.values()))
             remote_rpm = sum(
                 sum(w.get("rate_per_min", 0) for w in node.get("workers", []))
-                for node in self.remote_nodes.values()
+                for node in list(self.remote_nodes.values())
             )
             return local_rpm + remote_rpm
 
     def get_dashboard_data(self):
         with self.lock:
-            local_solved = sum(w.solves for w in self.workers.values())
-            local_fails = sum(w.fails for w in self.workers.values())
-            local_restarts = sum(w.restarts for w in self.workers.values())
-            local_active = sum(1 for w in self.workers.values() if w.status == "RUNNING")
+            local_solved = sum(w.solves for w in list(self.workers.values()))
+            local_fails = sum(w.fails for w in list(self.workers.values()))
+            local_restarts = sum(w.restarts for w in list(self.workers.values()))
+            local_active = sum(1 for w in list(self.workers.values()) if w.status == "RUNNING")
 
-            remote_solved = sum(nd["total_solved"] for nd in self.remote_nodes.values())
-            remote_fails = sum(nd["total_fails"] for nd in self.remote_nodes.values())
-            remote_restarts = sum(nd["total_restarts"] for nd in self.remote_nodes.values())
-            remote_active = sum(nd["active_workers_count"] for nd in self.remote_nodes.values())
+            remote_solved = sum(nd["total_solved"] for nd in list(self.remote_nodes.values()))
+            remote_fails = sum(nd["total_fails"] for nd in list(self.remote_nodes.values()))
+            remote_restarts = sum(nd["total_restarts"] for nd in list(self.remote_nodes.values()))
+            remote_active = sum(nd["active_workers_count"] for nd in list(self.remote_nodes.values()))
 
             total_solved = local_solved + remote_solved
             total_fails = local_fails + remote_fails
@@ -344,10 +345,10 @@ class OrchestratorManager:
             one_min_ago = now - 60.0
             solved_last_minute = sum(
                 sum(1 for ts in w.solve_timestamps if ts >= one_min_ago)
-                for w in self.workers.values()
+                for w in list(self.workers.values())
             ) + sum(
                 sum(w.get("rate_per_min", 0) for w in node.get("workers", []))
-                for node in self.remote_nodes.values()
+                for node in list(self.remote_nodes.values())
             )
 
             overall_rate_min = self.get_overall_rate_per_min()
@@ -378,7 +379,7 @@ class OrchestratorManager:
                     "uptime_formatted": uptime_formatted
                 })
 
-            for node_id, node in self.remote_nodes.items():
+            for node_id, node in list(self.remote_nodes.items()):
                 for rw in node.get("workers", []):
                     rw_copy = dict(rw)
                     rw_copy["node_id"] = node_id
@@ -396,7 +397,7 @@ class OrchestratorManager:
                     "fails": nd["total_fails"],
                     "last_seen": round(now - nd["last_seen"], 1)
                 }
-                for nid, nd in self.remote_nodes.items()
+                for nid, nd in list(self.remote_nodes.items())
             ]
 
             return {
@@ -430,7 +431,7 @@ def api_dashboard():
 
 @app.route("/api/workers/spawn", methods=["POST"])
 def api_spawn_worker():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     node_id = data.get("node_id")
 
     if node_id and node_id != "Master (Local)":
@@ -442,7 +443,7 @@ def api_spawn_worker():
 
 @app.route("/api/workers/spawn_bulk", methods=["POST"])
 def api_spawn_bulk():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     count = int(data.get("count", 1))
     node_id = data.get("node_id")
 
@@ -471,7 +472,7 @@ def api_stop_all():
 # Remote Node Heartbeat API Endpoint
 @app.route("/api/node/heartbeat", methods=["POST"])
 def api_node_heartbeat():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     res, status_code = manager.process_node_heartbeat(data)
     return jsonify(res), status_code
 
@@ -487,7 +488,8 @@ if __name__ == "__main__":
     manager.spawn_worker()
 
     try:
-        app.run(host="0.0.0.0", port=5000, debug=False)
+        # ENABLE THREADED MODE TO PREVENT HTTP LOCKUPS
+        app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
     finally:
         # Cleanup workers on shutdown
         manager.stop_all(sync=True)
