@@ -14,9 +14,7 @@ from selenium.common.exceptions import StaleElementReferenceException, WebDriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
-from pynput.keyboard import Key, Controller
 
-keyboard = Controller()
 
 def sanitize_worker_id(worker_id):
     """Sanitize worker_id string for filesystem safety."""
