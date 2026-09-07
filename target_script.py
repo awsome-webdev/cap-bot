@@ -6,6 +6,7 @@ import shutil
 import glob
 import tempfile
 import random
+import fcntl
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 import undetected_chromedriver as uc
@@ -22,15 +23,19 @@ def sanitize_worker_id(worker_id):
     return "".join(c for c in str(worker_id) if c.isalnum() or c in ("-", "_", ":")).replace(":", "_")
 
 def clean_worker_temp_files(worker_id):
-    """Purge temporary Chrome profiles and python temp folders to prevent Errno 28."""
+    """Purge temporary Chrome profiles and python temp folders for this worker."""
     clean_id = sanitize_worker_id(worker_id)
     profile_dir = f"/tmp/uc_profile_{clean_id}"
     tmp_dir = f"/tmp/uc_tmp_{clean_id}"
+    driver_bin = f"/tmp/chromedriver_{clean_id}"
 
-    for path in (profile_dir, tmp_dir):
+    for path in (profile_dir, tmp_dir, driver_bin):
         if os.path.exists(path):
             try:
-                shutil.rmtree(path, ignore_errors=True)
+                if os.path.isdir(path):
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    os.remove(path)
             except Exception:
                 pass
 
@@ -68,13 +73,12 @@ def wait_for_console_log(driver, phrase: str, poll_interval: float = 0.5, timeou
 def create_driver(worker_id):
     clean_id = sanitize_worker_id(worker_id)
     
-    # Stagger startup slightly to prevent ChromeDriver patching race condition across simultaneous workers
-    time.sleep(random.uniform(0.5, 2.5))
-    
     clean_worker_temp_files(worker_id)
     
     profile_dir = f"/tmp/uc_profile_{clean_id}"
     worker_tmp_dir = f"/tmp/uc_tmp_{clean_id}"
+    driver_bin_path = f"/tmp/chromedriver_{clean_id}"
+    
     os.makedirs(profile_dir, exist_ok=True)
     os.makedirs(worker_tmp_dir, exist_ok=True)
 
@@ -90,7 +94,7 @@ def create_driver(worker_id):
     options.add_argument("--disable-backgrounding-occluded-windows")
     options.add_argument("--disable-renderer-backgrounding")
     
-    # Memory & Disk optimization flags to prevent Errno 28 (No space left on device)
+    # Memory & Disk optimization flags to prevent Errno 28
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
@@ -102,11 +106,34 @@ def create_driver(worker_id):
     options.add_argument("--disk-cache-size=1048576")
     options.add_argument("--media-cache-size=1048576")
 
-    driver = uc.Chrome(
-        options=options,
-        version_main=152,
-        user_data_dir=profile_dir
-    )
+    # Use file locking so only one worker initializes uc.Chrome at a time
+    lock_file_path = "/tmp/uc_init.lock"
+    lock_fd = open(lock_file_path, "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+
+        # Prepare worker-isolated driver binary copy if a patched binary exists
+        patcher = uc.Patcher()
+        patcher.auto()
+        if os.path.exists(patcher.executable_path):
+            try:
+                shutil.copy2(patcher.executable_path, driver_bin_path)
+                os.chmod(driver_bin_path, 0o755)
+            except Exception:
+                driver_bin_path = None
+        else:
+            driver_bin_path = None
+
+        driver = uc.Chrome(
+            options=options,
+            version_main=152,
+            driver_executable_path=driver_bin_path,
+            patcher_force_close=False,  # CRITICAL: Do NOT kill other running Chromedriver processes!
+            user_data_dir=profile_dir
+        )
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
 
     # Spoof Navigator & JS Leaks
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
