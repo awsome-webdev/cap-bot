@@ -1,7 +1,11 @@
 import time
 import json
 import sys
-import traceback
+import os
+import shutil
+import glob
+import tempfile
+import random
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 import undetected_chromedriver as uc
@@ -12,6 +16,32 @@ from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from pynput.keyboard import Key, Controller
 
 keyboard = Controller()
+
+def sanitize_worker_id(worker_id):
+    """Sanitize worker_id string for filesystem safety."""
+    return "".join(c for c in str(worker_id) if c.isalnum() or c in ("-", "_", ":")).replace(":", "_")
+
+def clean_worker_temp_files(worker_id):
+    """Purge temporary Chrome profiles and python temp folders to prevent Errno 28."""
+    clean_id = sanitize_worker_id(worker_id)
+    profile_dir = f"/tmp/uc_profile_{clean_id}"
+    tmp_dir = f"/tmp/uc_tmp_{clean_id}"
+
+    for path in (profile_dir, tmp_dir):
+        if os.path.exists(path):
+            try:
+                shutil.rmtree(path, ignore_errors=True)
+            except Exception:
+                pass
+
+    # Clean leftover /tmp/tmp* folders older than 2 minutes
+    try:
+        now = time.time()
+        for path in glob.glob("/tmp/tmp*"):
+            if os.path.isdir(path) and (now - os.path.getmtime(path) > 120):
+                shutil.rmtree(path, ignore_errors=True)
+    except Exception:
+        pass
 
 def wait_for_console_log(driver, phrase: str, poll_interval: float = 0.5, timeout: float = None):
     start_time = time.time()
@@ -28,7 +58,6 @@ def wait_for_console_log(driver, phrase: str, poll_interval: float = 0.5, timeou
                     return None
         except Exception as e:
             consecutive_errors += 1
-            # If ChromeDriver or Chrome HTTP connection drops repeatedly, raise to trigger driver re-initialization
             if consecutive_errors > 3:
                 raise e
             time.sleep(1)
@@ -36,21 +65,48 @@ def wait_for_console_log(driver, phrase: str, poll_interval: float = 0.5, timeou
                 
         time.sleep(poll_interval)
 
-def create_driver():
+def create_driver(worker_id):
+    clean_id = sanitize_worker_id(worker_id)
+    
+    # Stagger startup slightly to prevent ChromeDriver patching race condition across simultaneous workers
+    time.sleep(random.uniform(0.5, 2.5))
+    
+    clean_worker_temp_files(worker_id)
+    
+    profile_dir = f"/tmp/uc_profile_{clean_id}"
+    worker_tmp_dir = f"/tmp/uc_tmp_{clean_id}"
+    os.makedirs(profile_dir, exist_ok=True)
+    os.makedirs(worker_tmp_dir, exist_ok=True)
+
+    # Set Python tempfile directory to this worker's isolated directory
+    tempfile.tempdir = worker_tmp_dir
+
     options = uc.ChromeOptions()
     options.set_capability('goog:loggingPrefs', {'browser': 'ALL'})
+    options.add_argument(f"--user-data-dir={profile_dir}")
     
-    # Flags to keep JavaScript active when in background/off-screen
+    # Background & Performance Flags
     options.add_argument("--disable-background-timer-throttling")
     options.add_argument("--disable-backgrounding-occluded-windows")
     options.add_argument("--disable-renderer-backgrounding")
     
+    # Memory & Disk optimization flags to prevent Errno 28 (No space left on device)
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-crash-reporter")
+    options.add_argument("--disable-breakpad")
+    options.add_argument("--disable-in-process-stack-traces")
+    options.add_argument("--log-level=3")
+    options.add_argument("--disk-cache-size=1048576")
+    options.add_argument("--media-cache-size=1048576")
 
-    driver = uc.Chrome(options=options, version_main=152)
+    driver = uc.Chrome(
+        options=options,
+        version_main=152,
+        user_data_dir=profile_dir
+    )
 
     # Spoof Navigator & JS Leaks
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -116,22 +172,31 @@ if __name__ == '__main__':
             fails += 1
             print(f'Timeout ({fails} total fails)', flush=True)
 
-    while True:
-        try:
-            if driver is None:
-                print('Initializing Chrome browser...', flush=True)
-                driver = create_driver()
+    try:
+        while True:
+            try:
+                if driver is None:
+                    print('Initializing Chrome browser...', flush=True)
+                    driver = create_driver(worker_id)
 
-            solve(driver)
+                solve(driver)
 
-        except (WebDriverException, Exception) as e:
-            fails += 1
-            print(f"Browser connection error ({type(e).__name__}): {e}", flush=True)
-            print("Cleaning up dead Chrome instance and re-initializing in 3s...", flush=True)
-            if driver:
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
-                driver = None
-            time.sleep(3)
+            except (WebDriverException, Exception) as e:
+                fails += 1
+                print(f"Browser connection error ({type(e).__name__}): {e}", flush=True)
+                print("Cleaning up dead Chrome instance and re-initializing in 3s...", flush=True)
+                if driver:
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+                    driver = None
+                clean_worker_temp_files(worker_id)
+                time.sleep(3)
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+        clean_worker_temp_files(worker_id)
