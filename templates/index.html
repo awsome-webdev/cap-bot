@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Captcha Botmaster - Control Center</title>
+  <title>Captcha Botmaster - Distributed Control Center</title>
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -72,9 +72,9 @@
           <div>
             <h1 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
               Botmaster Suite
-              <span class="text-xs px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-400 border border-brand-500/30 font-medium">v2.0 Active</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-400 border border-brand-500/30 font-medium">v3.0 Multi-Node</span>
             </h1>
-            <p class="text-xs text-slate-400 hidden sm:block">Selenium & Undetected-Chromedriver Cluster Orchestrator</p>
+            <p class="text-xs text-slate-400 hidden sm:block">Distributed Selenium & Undetected-Chromedriver Master</p>
           </div>
         </div>
 
@@ -130,7 +130,7 @@
             <span id="stat-total-solved" class="text-3xl font-extrabold text-white">0</span>
             <span id="stat-solved-today" class="text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">+0/min</span>
           </div>
-          <p class="text-xs text-slate-500 mt-2">Cumulative successful solves across all threads</p>
+          <p class="text-xs text-slate-500 mt-2">Cumulative successful solves across all nodes</p>
         </div>
 
         <!-- Overall Rate -->
@@ -180,9 +180,36 @@
             <span id="stat-active-workers" class="text-3xl font-extrabold text-white">0</span>
             <span id="stat-restarts" class="text-xs font-medium text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full">0 Auto-Restarts</span>
           </div>
-          <p class="text-xs text-slate-500 mt-2">Self-healing workers auto-respawn on crash</p>
+          <p class="text-xs text-slate-500 mt-2">Self-healing workers across all active nodes</p>
         </div>
 
+      </div>
+
+      <!-- Distributed Cluster Nodes Overview Section -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+        <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h2 class="text-base font-bold text-white flex items-center gap-2">
+              <i data-lucide="network" class="w-5 h-5 text-brand-400"></i>
+              Connected Remote Worker Nodes
+            </h2>
+            <p class="text-xs text-slate-400">External servers running `node_worker.js` connected to this Master dashboard</p>
+          </div>
+          <span id="nodes-count-badge" class="px-3 py-1 rounded-full bg-brand-500/20 text-brand-400 border border-brand-500/30 text-xs font-bold">
+            0 Remote Nodes Active
+          </span>
+        </div>
+
+        <div id="nodes-container" class="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <!-- Rendered via JS -->
+        </div>
+
+        <div id="empty-nodes-state" class="p-8 text-center border-t border-slate-800/60">
+          <p class="text-xs text-slate-400">No external server nodes connected yet.</p>
+          <p class="text-[11px] text-slate-500 mt-1">
+            Run <code class="bg-slate-950 px-2 py-0.5 rounded text-slate-300 font-mono">node node_worker.js</code> on any VPS or remote machine to attach more worker power!
+          </p>
+        </div>
       </div>
 
       <!-- Analytics Charts Section -->
@@ -237,11 +264,15 @@
               <i data-lucide="layers" class="w-5 h-5 text-brand-400"></i>
               Process Management Center
             </h2>
-            <p class="text-xs text-slate-400">Monitor individual Chrome instances, rates, logs, and restart counts</p>
+            <p class="text-xs text-slate-400">Monitor individual Chrome instances, rates, logs, and restart counts across all nodes</p>
           </div>
 
           <!-- Controls -->
           <div class="flex flex-wrap items-center gap-2">
+            <select id="target-node-select" class="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none">
+              <option value="Master (Local)">Target: Master (Local)</option>
+            </select>
+
             <div class="flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
               <span class="text-xs text-slate-400 px-2 font-medium">Bulk Spawn:</span>
               <button onclick="spawnMultipleWorkers(1)" class="px-2.5 py-1 text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-white rounded transition">
@@ -269,6 +300,7 @@
             <thead class="bg-slate-950/60 text-slate-400 uppercase tracking-wider text-[11px] border-b border-slate-800">
               <tr>
                 <th scope="col" class="py-3.5 px-4 font-semibold">Worker ID</th>
+                <th scope="col" class="py-3.5 px-4 font-semibold">Host / Node</th>
                 <th scope="col" class="py-3.5 px-4 font-semibold">PID / Status</th>
                 <th scope="col" class="py-3.5 px-4 font-semibold">Solves</th>
                 <th scope="col" class="py-3.5 px-4 font-semibold">Fails</th>
@@ -308,7 +340,7 @@
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <div class="flex items-center space-x-2">
             <i data-lucide="terminal" class="w-5 h-5 text-brand-400"></i>
-            <h2 class="text-sm font-bold text-white">Live Cluster Log Output</h2>
+            <h2 class="text-sm font-bold text-white">Live Distributed Log Output</h2>
           </div>
           <div class="flex items-center space-x-2">
             <label class="inline-flex items-center text-xs text-slate-400 cursor-pointer">
@@ -322,7 +354,7 @@
         </div>
 
         <div id="console-logs" class="bg-slate-950 font-mono text-xs text-slate-300 p-4 rounded-xl h-48 overflow-y-auto space-y-1.5 border border-slate-800">
-          <div class="text-slate-500 italic">[System] Connected to Orchestrator Engine. Listening for script stdout/stderr...</div>
+          <div class="text-slate-500 italic">[System] Connected to Orchestrator Engine. Listening for script stdout/stderr from all nodes...</div>
         </div>
       </div>
 
@@ -331,7 +363,7 @@
     <!-- Footer -->
     <footer class="border-t border-slate-800 bg-slate-900/50 py-4 mt-auto">
       <div class="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 flex flex-col sm:flex-row justify-between items-center gap-2">
-        <span>Selenium Process Manager & Monitor &bull; Self-Healing Cluster</span>
+        <span>Selenium Process Manager & Monitor &bull; Distributed Multi-Node Cluster</span>
         <span>Auto-retry enabled &bull; Undetected Chromedriver</span>
       </div>
     </footer>
@@ -444,6 +476,7 @@
 
         updateConnectionBadge(true);
         updateKPIs(data);
+        updateNodesUI(data.nodes);
         updateWorkersTable(data.workers);
         updateCharts(data);
         updateLogs(data.logs);
@@ -486,6 +519,73 @@
       document.getElementById('stat-restarts').innerText = `${data.total_restarts} Restarts`;
     }
 
+    // Nodes Overview Updates
+    function updateNodesUI(nodes) {
+      const nodesContainer = document.getElementById('nodes-container');
+      const emptyNodes = document.getElementById('empty-nodes-state');
+      const badge = document.getElementById('nodes-count-badge');
+      const selectTarget = document.getElementById('target-node-select');
+
+      badge.innerText = `${nodes ? nodes.length : 0} Remote Nodes Active`;
+
+      if (!nodes || nodes.length === 0) {
+        nodesContainer.innerHTML = '';
+        emptyNodes.classList.remove('hidden');
+        
+        // Reset select dropdown to local master only
+        selectTarget.innerHTML = '<option value="Master (Local)">Target: Master (Local)</option>';
+        return;
+      }
+
+      emptyNodes.classList.add('hidden');
+
+      // Update Node Target Dropdown
+      const currentSelected = selectTarget.value;
+      let optionsHtml = '<option value="Master (Local)">Target: Master (Local)</option>';
+
+      let nodesHtml = '';
+      nodes.forEach(n => {
+        optionsHtml += `<option value="${n.node_id}">Target: ${n.node_id} (${n.hostname})</option>`;
+
+        nodesHtml += `
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <div class="flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span class="font-bold text-white text-xs">${n.node_id}</span>
+              </div>
+              <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono">
+                ${n.platform} &bull; ${n.cpu_count} Cores
+              </span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span class="text-slate-500 block">Host Name</span>
+                <span class="font-semibold text-slate-200">${n.hostname}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">Active Workers</span>
+                <span class="font-bold text-purple-400">${n.active_workers} threads</span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">Solves / Fails</span>
+                <span class="font-bold text-emerald-400">${n.solves}</span> / <span class="text-amber-400 font-medium">${n.fails}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">Last Heartbeat</span>
+                <span class="text-slate-400">${n.last_seen}s ago</span>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      nodesContainer.innerHTML = nodesHtml;
+      selectTarget.innerHTML = optionsHtml;
+      selectTarget.value = currentSelected || 'Master (Local)';
+    }
+
     // Worker Table & Mobile Cards Render
     function updateWorkersTable(workers) {
       const tbody = document.getElementById('workers-table-body');
@@ -501,7 +601,6 @@
 
       emptyState.classList.add('hidden');
 
-      // 1. Desktop Table Body
       let tableHtml = '';
       let cardsHtml = '';
 
@@ -511,12 +610,19 @@
           ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 animate-pulse"></span> RUNNING</span>`
           : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20"><span class="w-1.5 h-1.5 rounded-full bg-amber-400 mr-1"></span> CRASHED/RESTARTING</span>`;
 
+        const nodeLabel = w.node_id || 'Master (Local)';
+
         // Table Row
         tableHtml += `
           <tr class="hover:bg-slate-800/40 transition">
             <td class="py-3 px-4 font-bold text-white flex items-center gap-2">
               <span class="w-2 h-2 rounded-full bg-slate-700"></span>
               ${w.id}
+            </td>
+            <td class="py-3 px-4 text-slate-300 font-sans">
+              <span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-medium text-slate-300">
+                ${nodeLabel}
+              </span>
             </td>
             <td class="py-3 px-4">
               <div class="flex items-center gap-2">
@@ -528,15 +634,15 @@
             <td class="py-3 px-4 text-amber-400 font-medium">${w.fails}</td>
             <td class="py-3 px-4">
               <div class="flex items-center gap-2">
-                <span class="font-medium">${w.success_rate.toFixed(1)}%</span>
+                <span class="font-medium">${(w.success_rate || 0).toFixed(1)}%</span>
                 <div class="w-12 bg-slate-800 rounded-full h-1 overflow-hidden hidden sm:block">
                   <div class="bg-emerald-500 h-1" style="width: ${w.success_rate}%"></div>
                 </div>
               </div>
             </td>
-            <td class="py-3 px-4 text-blue-400 font-bold">${w.rate_per_min.toFixed(1)}</td>
+            <td class="py-3 px-4 text-blue-400 font-bold">${(w.rate_per_min || 0).toFixed(1)}</td>
             <td class="py-3 px-4 text-purple-400">${w.restarts}</td>
-            <td class="py-3 px-4 text-slate-400">${w.uptime_formatted}</td>
+            <td class="py-3 px-4 text-slate-400">${w.uptime_formatted || '0:00:00'}</td>
             <td class="py-3 px-4 text-right">
               <div class="flex items-center justify-end space-x-1">
                 <button onclick="restartWorker('${w.id}')" title="Restart Worker Thread" class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition">
@@ -556,7 +662,7 @@
             <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
               <div class="flex items-center space-x-2">
                 <span class="font-bold text-white text-sm">${w.id}</span>
-                <span class="text-xs text-slate-500">(PID ${w.pid || 'N/A'})</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-sans">${nodeLabel}</span>
               </div>
               ${statusBadge}
             </div>
@@ -568,11 +674,11 @@
               </div>
               <div>
                 <span class="text-slate-500 block">Speed (RPM)</span>
-                <span class="font-bold text-blue-400">${w.rate_per_min.toFixed(1)} rpm</span>
+                <span class="font-bold text-blue-400">${(w.rate_per_min || 0).toFixed(1)} rpm</span>
               </div>
               <div>
                 <span class="text-slate-500 block">Success Rate</span>
-                <span class="font-semibold text-slate-200">${w.success_rate.toFixed(1)}%</span>
+                <span class="font-semibold text-slate-200">${(w.success_rate || 0).toFixed(1)}%</span>
               </div>
               <div>
                 <span class="text-slate-500 block">Restarts / Uptime</span>
@@ -628,7 +734,7 @@
         let colorClass = "text-slate-300";
         if (l.includes("Success")) colorClass = "text-emerald-400 font-semibold";
         else if (l.includes("Timeout") || l.includes("CRASH") || l.includes("ERROR")) colorClass = "text-amber-400 font-semibold";
-        else if (l.includes("SYSTEM") || l.includes("Spawned")) colorClass = "text-blue-400 font-medium";
+        else if (l.includes("SYSTEM") || l.includes("Spawned") || l.includes("COMMAND")) colorClass = "text-blue-400 font-medium";
 
         return `<div class="${colorClass}">${escapeHtml(l)}</div>`;
       }).join('');
@@ -644,8 +750,13 @@
 
     // API Actions
     async function spawnWorker() {
+      const selectedNode = document.getElementById('target-node-select').value;
       try {
-        const res = await fetch('/api/workers/spawn', { method: 'POST' });
+        const res = await fetch('/api/workers/spawn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ node_id: selectedNode })
+        });
         const json = await res.json();
         showToast(json.message, 'success');
         fetchDashboardState();
@@ -655,11 +766,12 @@
     }
 
     async function spawnMultipleWorkers(count) {
+      const selectedNode = document.getElementById('target-node-select').value;
       try {
         const res = await fetch('/api/workers/spawn_bulk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ count: count })
+          body: JSON.stringify({ count: count, node_id: selectedNode })
         });
         const json = await res.json();
         showToast(json.message, 'success');
@@ -672,7 +784,7 @@
     async function killWorker(workerId) {
       if (!confirm(`Are you sure you want to stop worker ${workerId}?`)) return;
       try {
-        const res = await fetch(`/api/workers/${workerId}/kill`, { method: 'POST' });
+        const res = await fetch(`/api/workers/${encodeURIComponent(workerId)}/kill`, { method: 'POST' });
         const json = await res.json();
         showToast(json.message, 'info');
         fetchDashboardState();
@@ -683,7 +795,7 @@
 
     async function restartWorker(workerId) {
       try {
-        const res = await fetch(`/api/workers/${workerId}/restart`, { method: 'POST' });
+        const res = await fetch(`/api/workers/${encodeURIComponent(workerId)}/restart`, { method: 'POST' });
         const json = await res.json();
         showToast(json.message, 'info');
         fetchDashboardState();
@@ -693,7 +805,7 @@
     }
 
     async function stopAllWorkers() {
-      if (!confirm('Are you sure you want to terminate ALL worker processes?')) return;
+      if (!confirm('Are you sure you want to terminate ALL local and remote worker processes?')) return;
       try {
         const res = await fetch('/api/workers/stop_all', { method: 'POST' });
         const json = await res.json();
