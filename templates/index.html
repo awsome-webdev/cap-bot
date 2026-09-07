@@ -72,7 +72,7 @@
           <div>
             <h1 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
               Botmaster Suite
-              <span class="text-xs px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-400 border border-brand-500/30 font-medium">v3.0 Multi-Node</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-400 border border-brand-500/30 font-medium">v3.1 Interactive Nodes</span>
             </h1>
             <p class="text-xs text-slate-400 hidden sm:block">Distributed Selenium & Undetected-Chromedriver Master</p>
           </div>
@@ -187,27 +187,29 @@
 
       <!-- Distributed Cluster Nodes Overview Section -->
       <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-        <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+        <div class="p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 class="text-base font-bold text-white flex items-center gap-2">
               <i data-lucide="network" class="w-5 h-5 text-brand-400"></i>
-              Connected Remote Worker Nodes
+              Interactive Cluster Nodes
             </h2>
-            <p class="text-xs text-slate-400">External servers running `node_worker.js` connected to this Master dashboard</p>
+            <p class="text-xs text-slate-400">Click any node card to focus view, spawn workers, or terminate threads</p>
           </div>
-          <span id="nodes-count-badge" class="px-3 py-1 rounded-full bg-brand-500/20 text-brand-400 border border-brand-500/30 text-xs font-bold">
-            0 Remote Nodes Active
-          </span>
+          <div class="flex items-center gap-2">
+            <span id="nodes-count-badge" class="px-3 py-1 rounded-full bg-brand-500/20 text-brand-400 border border-brand-500/30 text-xs font-bold">
+              1 Master Node Active
+            </span>
+          </div>
         </div>
 
         <div id="nodes-container" class="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <!-- Rendered via JS -->
         </div>
 
-        <div id="empty-nodes-state" class="p-8 text-center border-t border-slate-800/60">
+        <div id="empty-nodes-state" class="hidden p-8 text-center border-t border-slate-800/60">
           <p class="text-xs text-slate-400">No external server nodes connected yet.</p>
           <p class="text-[11px] text-slate-500 mt-1">
-            Run <code class="bg-slate-950 px-2 py-0.5 rounded text-slate-300 font-mono">node node_worker.js</code> on any VPS or remote machine to attach more worker power!
+            Run <code class="bg-slate-950 px-2 py-0.5 rounded text-slate-300 font-mono">python node_worker.py</code> on any remote VPS to attach more worker power!
           </p>
         </div>
       </div>
@@ -255,7 +257,7 @@
       </div>
 
       <!-- Worker Control & Monitor Section -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+      <div id="process-management-section" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
         
         <!-- Header & Action Bar -->
         <div class="p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -264,12 +266,15 @@
               <i data-lucide="layers" class="w-5 h-5 text-brand-400"></i>
               Process Management Center
             </h2>
-            <p class="text-xs text-slate-400">Monitor individual Chrome instances, rates, logs, and restart counts across all nodes</p>
+            <p class="text-xs text-slate-400">
+              Showing workers for: <span id="current-filter-label" class="font-bold text-brand-400">All Nodes</span>
+              <button id="clear-filter-btn" onclick="filterByNode('ALL')" class="hidden ml-2 text-[11px] underline text-slate-400 hover:text-white">(Show All)</button>
+            </p>
           </div>
 
           <!-- Controls -->
           <div class="flex flex-wrap items-center gap-2">
-            <select id="target-node-select" class="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none">
+            <select id="target-node-select" onchange="filterByNode(this.value)" class="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none">
               <option value="Master (Local)">Target: Master (Local)</option>
             </select>
 
@@ -325,8 +330,8 @@
         <!-- Empty State -->
         <div id="empty-workers-state" class="hidden p-12 text-center">
           <i data-lucide="bot" class="w-12 h-12 text-slate-600 mx-auto mb-3"></i>
-          <p class="text-sm text-slate-400 font-medium">No target script workers currently running.</p>
-          <p class="text-xs text-slate-500 mt-1 mb-4">Click below to spawn your first Selenium script thread.</p>
+          <p class="text-sm text-slate-400 font-medium">No target script workers currently running on this node.</p>
+          <p class="text-xs text-slate-500 mt-1 mb-4">Click below to spawn a Selenium script thread on the target node.</p>
           <button onclick="spawnWorker()" class="inline-flex items-center space-x-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-lg transition shadow">
             <i data-lucide="plus-circle" class="w-4 h-4"></i>
             <span>Spawn First Worker</span>
@@ -360,10 +365,70 @@
 
     </main>
 
+    <!-- Node Modal Detail Inspector -->
+    <div id="node-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl relative">
+        <button onclick="closeNodeModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+
+        <div class="flex items-center space-x-3">
+          <div class="p-3 bg-brand-500/10 rounded-xl text-brand-400 border border-brand-500/20">
+            <i data-lucide="server" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 id="modal-node-title" class="text-lg font-bold text-white">Node Inspector</h3>
+            <p id="modal-node-sub" class="text-xs text-slate-400">Node details & worker controls</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+          <div>
+            <span class="text-slate-500 block">Host Name</span>
+            <span id="modal-host" class="font-semibold text-slate-200">-</span>
+          </div>
+          <div>
+            <span class="text-slate-500 block">Platform</span>
+            <span id="modal-platform" class="font-semibold text-slate-200">-</span>
+          </div>
+          <div>
+            <span class="text-slate-500 block">Active Workers</span>
+            <span id="modal-active" class="font-bold text-purple-400">-</span>
+          </div>
+          <div>
+            <span class="text-slate-500 block">Solves / Fails</span>
+            <span id="modal-stats" class="font-bold text-emerald-400">-</span>
+          </div>
+        </div>
+
+        <!-- Node Control Action Buttons -->
+        <div class="space-y-2">
+          <h4 class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Direct Actions for this Node</h4>
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="modal-add-1-btn" class="flex-1 px-3 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5">
+              <i data-lucide="plus" class="w-4 h-4"></i> Add 1 Worker
+            </button>
+            <button id="modal-add-3-btn" class="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 border border-slate-700">
+              <i data-lucide="plus-circle" class="w-4 h-4"></i> Add 3 Workers
+            </button>
+            <button id="modal-focus-btn" class="flex-1 px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg text-xs font-bold transition border border-blue-500/30 flex items-center justify-center gap-1.5">
+              <i data-lucide="filter" class="w-4 h-4"></i> Focus Table
+            </button>
+          </div>
+        </div>
+
+        <div class="pt-2 border-t border-slate-800 flex justify-end">
+          <button onclick="closeNodeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Footer -->
     <footer class="border-t border-slate-800 bg-slate-900/50 py-4 mt-auto">
       <div class="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 flex flex-col sm:flex-row justify-between items-center gap-2">
-        <span>Selenium Process Manager & Monitor &bull; Distributed Multi-Node Cluster</span>
+        <span>Selenium Process Manager &bull; Distributed Multi-Node Cluster</span>
         <span>Auto-retry enabled &bull; Undetected Chromedriver</span>
       </div>
     </footer>
@@ -375,6 +440,9 @@
     let rateChart = null;
     let accuracyChart = null;
     let autoScrollLogs = true;
+    let selectedNodeFilter = "ALL"; // ALL or specific node_id
+    let cachedNodes = [];
+    let cachedWorkers = [];
 
     // Initialize Page
     document.addEventListener('DOMContentLoaded', () => {
@@ -474,10 +542,13 @@
         if (!response.ok) throw new Error('API unreachable');
         const data = await response.json();
 
+        cachedNodes = data.nodes || [];
+        cachedWorkers = data.workers || [];
+
         updateConnectionBadge(true);
         updateKPIs(data);
-        updateNodesUI(data.nodes);
-        updateWorkersTable(data.workers);
+        updateNodesUI(cachedNodes, data.active_workers_count);
+        updateWorkersTable(cachedWorkers);
         updateCharts(data);
         updateLogs(data.logs);
       } catch (err) {
@@ -520,49 +591,56 @@
     }
 
     // Nodes Overview Updates
-    function updateNodesUI(nodes) {
+    function updateNodesUI(remoteNodes, totalActiveWorkers) {
       const nodesContainer = document.getElementById('nodes-container');
       const emptyNodes = document.getElementById('empty-nodes-state');
       const badge = document.getElementById('nodes-count-badge');
       const selectTarget = document.getElementById('target-node-select');
 
-      badge.innerText = `${nodes ? nodes.length : 0} Remote Nodes Active`;
+      const masterLocalNode = {
+        node_id: "Master (Local)",
+        hostname: "Master Host",
+        platform: "Master Control Center",
+        cpu_count: "Host",
+        active_workers: cachedWorkers.filter(w => w.node_id === "Master (Local)" && w.status === "RUNNING").length,
+        solves: cachedWorkers.filter(w => w.node_id === "Master (Local)").reduce((acc, w) => acc + w.solves, 0),
+        fails: cachedWorkers.filter(w => w.node_id === "Master (Local)").reduce((acc, w) => acc + w.fails, 0),
+        last_seen: 0,
+        is_master: true
+      };
 
-      if (!nodes || nodes.length === 0) {
-        nodesContainer.innerHTML = '';
-        emptyNodes.classList.remove('hidden');
-        
-        // Reset select dropdown to local master only
-        selectTarget.innerHTML = '<option value="Master (Local)">Target: Master (Local)</option>';
-        return;
-      }
-
-      emptyNodes.classList.add('hidden');
+      const allClusterNodes = [masterLocalNode, ...remoteNodes];
+      badge.innerText = `${allClusterNodes.length} Node(s) Online (${remoteNodes.length} Remote)`;
 
       // Update Node Target Dropdown
-      const currentSelected = selectTarget.value;
+      const currentSelected = selectTarget.value || selectedNodeFilter;
       let optionsHtml = '<option value="Master (Local)">Target: Master (Local)</option>';
 
       let nodesHtml = '';
-      nodes.forEach(n => {
-        optionsHtml += `<option value="${n.node_id}">Target: ${n.node_id} (${n.hostname})</option>`;
+      allClusterNodes.forEach(n => {
+        if (!n.is_master) {
+          optionsHtml += `<option value="${n.node_id}">Target: ${n.node_id} (${n.hostname})</option>`;
+        }
+
+        const isFiltered = (selectedNodeFilter === n.node_id);
+        const cardBorderClass = isFiltered ? "border-brand-500 ring-1 ring-brand-500" : "border-slate-800 hover:border-slate-700";
 
         nodesHtml += `
-          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+          <div class="p-4 rounded-xl bg-slate-950 border ${cardBorderClass} transition-all space-y-3 relative group">
             <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
-              <div class="flex items-center space-x-2">
-                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span class="font-bold text-white text-xs">${n.node_id}</span>
+              <div class="flex items-center space-x-2 cursor-pointer" onclick="openNodeInspector('${n.node_id}')">
+                <span class="w-2.5 h-2.5 rounded-full ${n.is_master ? 'bg-emerald-400' : 'bg-emerald-400 animate-pulse'}"></span>
+                <span class="font-bold text-white text-xs hover:text-brand-400 transition">${n.node_id}</span>
               </div>
               <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono">
-                ${n.platform} &bull; ${n.cpu_count} Cores
+                ${n.is_master ? 'Master' : n.platform}
               </span>
             </div>
 
-            <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="grid grid-cols-2 gap-2 text-xs cursor-pointer" onclick="openNodeInspector('${n.node_id}')">
               <div>
                 <span class="text-slate-500 block">Host Name</span>
-                <span class="font-semibold text-slate-200">${n.hostname}</span>
+                <span class="font-semibold text-slate-200 truncate block">${n.hostname}</span>
               </div>
               <div>
                 <span class="text-slate-500 block">Active Workers</span>
@@ -573,8 +651,29 @@
                 <span class="font-bold text-emerald-400">${n.solves}</span> / <span class="text-amber-400 font-medium">${n.fails}</span>
               </div>
               <div>
-                <span class="text-slate-500 block">Last Heartbeat</span>
-                <span class="text-slate-400">${n.last_seen}s ago</span>
+                <span class="text-slate-500 block">Heartbeat</span>
+                <span class="text-slate-400">${n.is_master ? 'Self' : n.last_seen + 's ago'}</span>
+              </div>
+            </div>
+
+            <!-- Quick Action Bar inside Node Card -->
+            <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-1">
+              <div class="flex items-center gap-1">
+                <button onclick="spawnOnNode('${n.node_id}', 1)" title="Add +1 Worker thread to this node" class="px-2 py-1 text-[11px] font-bold bg-brand-600/20 hover:bg-brand-600/30 text-brand-400 border border-brand-500/30 rounded flex items-center gap-1 transition">
+                  <i data-lucide="plus" class="w-3 h-3"></i> Add +1
+                </button>
+                <button onclick="spawnOnNode('${n.node_id}', 3)" title="Add +3 Worker threads to this node" class="px-2 py-1 text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded transition">
+                  +3
+                </button>
+              </div>
+
+              <div class="flex items-center gap-1">
+                <button onclick="filterByNode('${n.node_id}')" title="Filter process table to show only this node" class="p-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700">
+                  <i data-lucide="filter" class="w-3 h-3"></i>
+                </button>
+                <button onclick="openNodeInspector('${n.node_id}')" title="Open detailed node inspector" class="p-1 text-[11px] bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded border border-blue-500/30">
+                  <i data-lucide="external-link" class="w-3 h-3"></i>
+                </button>
               </div>
             </div>
           </div>
@@ -584,6 +683,91 @@
       nodesContainer.innerHTML = nodesHtml;
       selectTarget.innerHTML = optionsHtml;
       selectTarget.value = currentSelected || 'Master (Local)';
+      lucide.createIcons();
+    }
+
+    // Node Filter Function
+    function filterByNode(nodeId) {
+      selectedNodeFilter = nodeId;
+      const label = document.getElementById('current-filter-label');
+      const clearBtn = document.getElementById('clear-filter-btn');
+
+      if (nodeId === 'ALL') {
+        label.innerText = 'All Nodes';
+        clearBtn.classList.add('hidden');
+      } else {
+        label.innerText = nodeId;
+        clearBtn.classList.remove('hidden');
+        document.getElementById('target-node-select').value = nodeId;
+      }
+
+      updateWorkersTable(cachedWorkers);
+      updateNodesUI(cachedNodes, cachedWorkers.filter(w => w.status === "RUNNING").length);
+
+      // Smooth scroll to process management table
+      document.getElementById('process-management-section').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Direct Spawn on a specific Node
+    async function spawnOnNode(nodeId, count = 1) {
+      try {
+        const endpoint = count > 1 ? '/api/workers/spawn_bulk' : '/api/workers/spawn';
+        const body = count > 1 ? { count: count, node_id: nodeId } : { node_id: nodeId };
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const json = await res.json();
+        showToast(json.message, 'success');
+        fetchDashboardState();
+      } catch (e) {
+        showToast(`Failed to spawn workers on ${nodeId}`, 'error');
+      }
+    }
+
+    // Node Modal Details
+    function openNodeInspector(nodeId) {
+      const modal = document.getElementById('node-modal');
+      const title = document.getElementById('modal-node-title');
+      const sub = document.getElementById('modal-node-sub');
+      const host = document.getElementById('modal-host');
+      const platform = document.getElementById('modal-platform');
+      const active = document.getElementById('modal-active');
+      const stats = document.getElementById('modal-stats');
+
+      title.innerText = `Node Inspector: ${nodeId}`;
+
+      let nodeObj = null;
+      if (nodeId === "Master (Local)") {
+        const masterWorkers = cachedWorkers.filter(w => w.node_id === "Master (Local)");
+        nodeObj = {
+          hostname: "Master Host",
+          platform: "Master Orchestrator Engine",
+          active_workers: masterWorkers.filter(w => w.status === "RUNNING").length,
+          solves: masterWorkers.reduce((acc, w) => acc + w.solves, 0),
+          fails: masterWorkers.reduce((acc, w) => acc + w.fails, 0)
+        };
+      } else {
+        nodeObj = cachedNodes.find(n => n.node_id === nodeId) || {};
+      }
+
+      host.innerText = nodeObj.hostname || "Unknown";
+      platform.innerText = nodeObj.platform || "N/A";
+      active.innerText = `${nodeObj.active_workers || 0} threads`;
+      stats.innerText = `${nodeObj.solves || 0} solves / ${nodeObj.fails || 0} fails`;
+
+      document.getElementById('modal-add-1-btn').onclick = () => { spawnOnNode(nodeId, 1); closeNodeModal(); };
+      document.getElementById('modal-add-3-btn').onclick = () => { spawnOnNode(nodeId, 3); closeNodeModal(); };
+      document.getElementById('modal-focus-btn').onclick = () => { filterByNode(nodeId); closeNodeModal(); };
+
+      modal.classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeNodeModal() {
+      document.getElementById('node-modal').classList.add('hidden');
     }
 
     // Worker Table & Mobile Cards Render
@@ -592,7 +776,12 @@
       const mobileCards = document.getElementById('workers-cards-mobile');
       const emptyState = document.getElementById('empty-workers-state');
 
-      if (!workers || workers.length === 0) {
+      let filtered = workers;
+      if (selectedNodeFilter !== "ALL") {
+        filtered = workers.filter(w => (w.node_id || 'Master (Local)') === selectedNodeFilter);
+      }
+
+      if (!filtered || filtered.length === 0) {
         tbody.innerHTML = '';
         mobileCards.innerHTML = '';
         emptyState.classList.remove('hidden');
@@ -604,7 +793,7 @@
       let tableHtml = '';
       let cardsHtml = '';
 
-      workers.forEach(w => {
+      filtered.forEach(w => {
         const isRunning = w.status === 'RUNNING';
         const statusBadge = isRunning
           ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 animate-pulse"></span> RUNNING</span>`
@@ -620,9 +809,9 @@
               ${w.id}
             </td>
             <td class="py-3 px-4 text-slate-300 font-sans">
-              <span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-medium text-slate-300">
+              <button onclick="filterByNode('${nodeLabel}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-medium text-slate-300 transition">
                 ${nodeLabel}
-              </span>
+              </button>
             </td>
             <td class="py-3 px-4">
               <div class="flex items-center gap-2">
