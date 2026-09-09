@@ -14,7 +14,9 @@ from selenium.common.exceptions import StaleElementReferenceException, WebDriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from pynput.keyboard import Key, Controller
 
+keyboard = Controller()
 
 def sanitize_worker_id(worker_id):
     """Sanitize worker_id string for filesystem safety."""
@@ -46,7 +48,7 @@ def clean_worker_temp_files(worker_id):
     except Exception:
         pass
 
-def wait_for_console_log(driver, phrase: str, poll_interval: float = 0.5, timeout: float = None):
+def wait_for_console_logs(driver, success_phrase: str, fail_phrase: str, poll_interval: float = 0.5, timeout: float = 10.0):
     start_time = time.time()
     consecutive_errors = 0
     while True:
@@ -57,8 +59,11 @@ def wait_for_console_log(driver, phrase: str, poll_interval: float = 0.5, timeou
             logs = driver.get_log('browser')
             consecutive_errors = 0
             for entry in logs:
-                if phrase in entry.get('message', ''):
-                    return None
+                msg = entry.get('message', '')
+                if success_phrase in msg:
+                    return 'success'
+                if fail_phrase in msg:
+                    return 'fail'
         except Exception as e:
             consecutive_errors += 1
             if consecutive_errors > 3:
@@ -67,6 +72,27 @@ def wait_for_console_log(driver, phrase: str, poll_interval: float = 0.5, timeou
             continue
                 
         time.sleep(poll_interval)
+
+def find_chrome_binary():
+    """Find Google Chrome binary location across Linux, WSL, and Windows."""
+    candidates = [
+        # Standard Linux paths
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/snap/bin/chromium",
+        # WSL paths (Windows Chrome accessed from WSL)
+        "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+        "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+        # Standard Windows paths
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
 
 def create_driver(worker_id):
     clean_id = sanitize_worker_id(worker_id)
@@ -86,6 +112,11 @@ def create_driver(worker_id):
     options = uc.ChromeOptions()
     options.set_capability('goog:loggingPrefs', {'browser': 'ALL'})
     options.add_argument(f"--user-data-dir={profile_dir}")
+    
+    # Locate Chrome binary explicitly to handle WSL / non-standard environments
+    chrome_bin = find_chrome_binary()
+    if chrome_bin:
+        options.binary_location = chrome_bin
     
     # Background & Performance Flags
     options.add_argument("--disable-background-timer-throttling")
@@ -110,25 +141,28 @@ def create_driver(worker_id):
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
 
-        # Prepare worker-isolated driver binary copy if a patched binary exists
-        patcher = uc.Patcher()
-        patcher.auto()
-        if os.path.exists(patcher.executable_path):
-            try:
+        # Try to use worker-isolated driver binary copy if a patched binary exists
+        driver_bin_path = f"/tmp/chromedriver_{clean_id}"
+        use_custom_driver = False
+        try:
+            patcher = uc.Patcher()
+            patcher.auto()
+            if os.path.exists(patcher.executable_path):
                 shutil.copy2(patcher.executable_path, driver_bin_path)
                 os.chmod(driver_bin_path, 0o755)
-            except Exception:
-                driver_bin_path = None
-        else:
-            driver_bin_path = None
+                use_custom_driver = True
+        except Exception as patch_err:
+            print(f"Warning: Driver patching failed ({patch_err}), falling back to default...", flush=True)
 
-        driver = uc.Chrome(
-            options=options,
-            version_main=152,
-            driver_executable_path=driver_bin_path,
-            patcher_force_close=False,  # CRITICAL: Do NOT kill other running Chromedriver processes!
-            user_data_dir=profile_dir
-        )
+        driver_kwargs = {
+            "options": options,
+            "patcher_force_close": False,
+            "user_data_dir": profile_dir
+        }
+        if use_custom_driver:
+            driver_kwargs["driver_executable_path"] = driver_bin_path
+
+        driver = uc.Chrome(**driver_kwargs)
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         lock_fd.close()
@@ -172,11 +206,12 @@ if __name__ == '__main__':
     worker_id = sys.argv[1] if len(sys.argv) > 1 else "standalone"
     count = 0
     fails = 0
+    timeouts = 0
 
     driver = None
 
     def solve(driver_instance):
-        global count, fails
+        global count, fails, timeouts
         
         # Ensure window stays off-screen even if driver.get tries to pull focus
         driver_instance.set_window_position(20000, 0)
@@ -189,13 +224,23 @@ if __name__ == '__main__':
         ele.click()
         print('clicked element', flush=True)
         
-        wa = wait_for_console_log(driver_instance, "actually a good", timeout=10)
-        if wa is None:
+        # Listen simultaneously for success and failure phrases
+        outcome = wait_for_console_logs(
+            driver_instance,
+            success_phrase="actually a good",
+            fail_phrase="hahaha you didnt do it womp womp",
+            poll_interval=0.5,
+            timeout=10.0
+        )
+        if outcome == 'success':
             count += 1
             print(f'Success! Solved {count} Captchas', flush=True)
-        else:
+        elif outcome == 'fail':
             fails += 1
-            print(f'Timeout ({fails} total fails)', flush=True)
+            print(f'Fail! (womp womp) ({fails} total fails, {timeouts} total timeouts)', flush=True)
+        else: # timeout
+            timeouts += 1
+            print(f'Timeout ({timeouts} total timeouts, {fails} total fails)', flush=True)
 
     try:
         while True:

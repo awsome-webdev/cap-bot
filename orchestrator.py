@@ -33,11 +33,13 @@ class WorkerProcess:
         # Statistics
         self.solves = 0
         self.fails = 0
+        self.timeouts = 0
         self.restarts = 0
         
-        # Timestamps of successful solves for rate calculation
-        self.solve_timestamps = deque(maxlen=1000)
-        self.fail_timestamps = deque(maxlen=1000)
+        # Timestamps of events for 5-minute sliding window rate calculation
+        self.solve_timestamps = deque(maxlen=5000)
+        self.fail_timestamps = deque(maxlen=5000)
+        self.timeout_timestamps = deque(maxlen=5000)
 
     def start(self):
         self.should_run = True
@@ -93,21 +95,48 @@ class WorkerProcess:
         log_entry = f"[{timestamp_str}] [{self.worker_id}] {line}"
         self.manager.log(log_entry)
 
-        # Regex match success output: "Success! Solved X Captchas"
+        # Match success output: "Success! Solved X Captchas"
         if "Success!" in line or "Solved" in line:
             self.solves += 1
             self.solve_timestamps.append(time.time())
-        # Regex match fail output: "Timeout (X total fails)"
-        elif "Timeout" in line or "fail" in line.lower():
+        # Match explicit captcha fail output: "Fail! (womp womp)"
+        elif "Fail!" in line or "womp womp" in line:
+            self.fails += 1
+            self.fail_timestamps.append(time.time())
+        # Match explicit timeout output: "Timeout (X total timeouts...)"
+        elif "Timeout" in line:
+            self.timeouts += 1
+            self.timeout_timestamps.append(time.time())
+        elif "fail" in line.lower():
             self.fails += 1
             self.fail_timestamps.append(time.time())
 
     def get_rate_per_min(self):
-        """Calculates solves per minute based on solves in the last 60 seconds."""
+        """Calculates average solves per minute across the last 5 minutes (300 seconds)."""
         now = time.time()
-        one_min_ago = now - 60.0
-        recent_solves = sum(1 for ts in self.solve_timestamps if ts >= one_min_ago)
-        return float(recent_solves)
+        five_min_ago = now - 300.0
+        recent_solves = sum(1 for ts in self.solve_timestamps if ts >= five_min_ago)
+        uptime = self.get_uptime_seconds()
+        window_minutes = min(max(uptime, 10.0), 300.0) / 60.0
+        return float(recent_solves / window_minutes)
+
+    def get_fail_rate_per_min(self):
+        """Calculates average fails per minute across the last 5 minutes."""
+        now = time.time()
+        five_min_ago = now - 300.0
+        recent_fails = sum(1 for ts in self.fail_timestamps if ts >= five_min_ago)
+        uptime = self.get_uptime_seconds()
+        window_minutes = min(max(uptime, 10.0), 300.0) / 60.0
+        return float(recent_fails / window_minutes)
+
+    def get_timeout_rate_per_min(self):
+        """Calculates average timeouts per minute across the last 5 minutes."""
+        now = time.time()
+        five_min_ago = now - 300.0
+        recent_timeouts = sum(1 for ts in self.timeout_timestamps if ts >= five_min_ago)
+        uptime = self.get_uptime_seconds()
+        window_minutes = min(max(uptime, 10.0), 300.0) / 60.0
+        return float(recent_timeouts / window_minutes)
 
     def get_uptime_seconds(self):
         if self.start_time and self.status == "RUNNING":
@@ -146,9 +175,11 @@ class OrchestratorManager:
         # CRITICAL FIX: Use RLock (Reentrant Lock) to prevent deadlocks when calling lock-protected methods internally
         self.lock = threading.RLock()
         
-        # Historical rate metrics tracking (for Chart.js)
+        # Historical rate metrics tracking (for Chart.js solves, fails, timeouts)
         self.history_timestamps = deque(maxlen=30)
         self.history_rates = deque(maxlen=30)
+        self.history_fail_rates = deque(maxlen=30)
+        self.history_timeout_rates = deque(maxlen=30)
         
         # Start background monitor thread for aggregate rate history and node timeouts
         self.monitor_thread = threading.Thread(target=self._monitor_history, daemon=True)
@@ -268,6 +299,7 @@ class OrchestratorManager:
                 "active_workers_count": node_data.get("active_workers_count", 0),
                 "total_solved": node_data.get("total_solved", 0),
                 "total_fails": node_data.get("total_fails", 0),
+                "total_timeouts": node_data.get("total_timeouts", 0),
                 "total_restarts": node_data.get("total_restarts", 0),
                 "workers": node_data.get("workers", [])
             }
@@ -300,10 +332,14 @@ class OrchestratorManager:
             time.sleep(3)
             now_str = datetime.now().strftime("%H:%M:%S")
             overall_rpm = self.get_overall_rate_per_min()
+            overall_fail_rpm = self.get_overall_fail_rate_per_min()
+            overall_timeout_rpm = self.get_overall_timeout_rate_per_min()
             
             with self.lock:
                 self.history_timestamps.append(now_str)
                 self.history_rates.append(round(overall_rpm, 2))
+                self.history_fail_rates.append(round(overall_fail_rpm, 2))
+                self.history_timeout_rates.append(round(overall_timeout_rpm, 2))
 
                 # Prune nodes inactive for > 10 seconds
                 now = time.time()
@@ -323,20 +359,41 @@ class OrchestratorManager:
             )
             return local_rpm + remote_rpm
 
+    def get_overall_fail_rate_per_min(self):
+        with self.lock:
+            local_fail_rpm = sum(w.get_fail_rate_per_min() for w in list(self.workers.values()))
+            remote_fail_rpm = sum(
+                sum(w.get("fail_rate_per_min", 0) for w in node.get("workers", []))
+                for node in list(self.remote_nodes.values())
+            )
+            return local_fail_rpm + remote_fail_rpm
+
+    def get_overall_timeout_rate_per_min(self):
+        with self.lock:
+            local_to_rpm = sum(w.get_timeout_rate_per_min() for w in list(self.workers.values()))
+            remote_to_rpm = sum(
+                sum(w.get("timeout_rate_per_min", 0) for w in node.get("workers", []))
+                for node in list(self.remote_nodes.values())
+            )
+            return local_to_rpm + remote_to_rpm
+
     def get_dashboard_data(self):
         with self.lock:
             local_solved = sum(w.solves for w in list(self.workers.values()))
             local_fails = sum(w.fails for w in list(self.workers.values()))
+            local_timeouts = sum(getattr(w, 'timeouts', 0) for w in list(self.workers.values()))
             local_restarts = sum(w.restarts for w in list(self.workers.values()))
             local_active = sum(1 for w in list(self.workers.values()) if w.status == "RUNNING")
 
             remote_solved = sum(nd["total_solved"] for nd in list(self.remote_nodes.values()))
             remote_fails = sum(nd["total_fails"] for nd in list(self.remote_nodes.values()))
+            remote_timeouts = sum(nd.get("total_timeouts", 0) for nd in list(self.remote_nodes.values()))
             remote_restarts = sum(nd["total_restarts"] for nd in list(self.remote_nodes.values()))
             remote_active = sum(nd["active_workers_count"] for nd in list(self.remote_nodes.values()))
 
             total_solved = local_solved + remote_solved
             total_fails = local_fails + remote_fails
+            total_timeouts = local_timeouts + remote_timeouts
             total_restarts = local_restarts + remote_restarts
             active_count = local_active + remote_active
 
@@ -354,13 +411,15 @@ class OrchestratorManager:
             overall_rate_min = self.get_overall_rate_per_min()
             overall_rate_sec = overall_rate_min / 60.0
 
-            total_attempts = total_solved + total_fails
+            total_attempts = total_solved + total_fails + total_timeouts
             fail_rate_pct = (total_fails / total_attempts * 100.0) if total_attempts > 0 else 0.0
+            timeout_rate_pct = (total_timeouts / total_attempts * 100.0) if total_attempts > 0 else 0.0
 
             # Aggregated Worker details (Local + Remote)
             combined_workers = []
             for w_id, w in list(self.workers.items()):
-                w_attempts = w.solves + w.fails
+                w_timeouts = getattr(w, 'timeouts', 0)
+                w_attempts = w.solves + w.fails + w_timeouts
                 w_success_rate = (w.solves / w_attempts * 100.0) if w_attempts > 0 else 100.0
                 uptime_sec = w.get_uptime_seconds()
                 uptime_formatted = str(timedelta(seconds=uptime_sec)) if uptime_sec > 0 else "0:00:00"
@@ -372,8 +431,11 @@ class OrchestratorManager:
                     "status": w.status,
                     "solves": w.solves,
                     "fails": w.fails,
+                    "timeouts": w_timeouts,
                     "restarts": w.restarts,
                     "rate_per_min": w.get_rate_per_min(),
+                    "fail_rate_per_min": w.get_fail_rate_per_min(),
+                    "timeout_rate_per_min": w.get_timeout_rate_per_min(),
                     "success_rate": round(w_success_rate, 1),
                     "uptime_seconds": uptime_sec,
                     "uptime_formatted": uptime_formatted
@@ -395,6 +457,7 @@ class OrchestratorManager:
                     "active_workers": nd["active_workers_count"],
                     "solves": nd["total_solved"],
                     "fails": nd["total_fails"],
+                    "timeouts": nd.get("total_timeouts", 0),
                     "last_seen": round(now - nd["last_seen"], 1)
                 }
                 for nid, nd in list(self.remote_nodes.items())
@@ -403,17 +466,21 @@ class OrchestratorManager:
             return {
                 "total_solved": total_solved,
                 "total_fails": total_fails,
+                "total_timeouts": total_timeouts,
                 "total_restarts": total_restarts,
                 "solved_last_minute": solved_last_minute,
                 "overall_rate_per_min": round(overall_rate_min, 1),
                 "overall_rate_per_sec": round(overall_rate_sec, 2),
                 "fail_rate_percent": round(fail_rate_pct, 1),
+                "timeout_rate_percent": round(timeout_rate_pct, 1),
                 "active_workers_count": active_count,
                 "total_workers_count": len(combined_workers),
                 "workers": combined_workers,
                 "nodes": nodes_summary,
                 "history_labels": list(self.history_timestamps),
                 "history_rates": list(self.history_rates),
+                "history_fail_rates": list(self.history_fail_rates),
+                "history_timeout_rates": list(self.history_timeout_rates),
                 "logs": list(self.logs)
             }
 

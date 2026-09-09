@@ -44,9 +44,11 @@ class NodeWorkerProcess:
         self.status = "INITIALIZING"
         self.solves = 0
         self.fails = 0
+        self.timeouts = 0
         self.restarts = 0
         self.solve_timestamps = []
         self.fail_timestamps = []
+        self.timeout_timestamps = []
         self.should_run = True
         self.start_time = time.time()
 
@@ -108,14 +110,24 @@ class NodeWorkerProcess:
         if "Success!" in line or "Solved" in line:
             self.solves += 1
             self.solve_timestamps.append(time.time())
-        elif "Timeout" in line or "fail" in line.lower():
+        elif "Fail!" in line or "womp womp" in line:
+            self.fails += 1
+            self.fail_timestamps.append(time.time())
+        elif "Timeout" in line:
+            self.timeouts += 1
+            self.timeout_timestamps.append(time.time())
+        elif "fail" in line.lower():
             self.fails += 1
             self.fail_timestamps.append(time.time())
 
     def get_rate_per_min(self):
-        one_min_ago = time.time() - 60.0
-        self.solve_timestamps = [ts for ts in self.solve_timestamps if ts >= one_min_ago]
-        return float(len(self.solve_timestamps))
+        # 5-minute rolling average solves per minute
+        now = time.time()
+        five_min_ago = now - 300.0
+        self.solve_timestamps = [ts for ts in self.solve_timestamps if ts >= five_min_ago]
+        uptime = self.get_uptime_seconds()
+        window_minutes = min(max(uptime, 10.0), 300.0) / 60.0
+        return float(len(self.solve_timestamps) / window_minutes)
 
     def get_uptime_seconds(self):
         if self.status == "RUNNING":
@@ -194,17 +206,19 @@ def stop_all_local_workers():
     log_system("Stopped all local workers.")
 
 def send_heartbeat():
-    global logs_buffer
+    global logs_buffer, MASTER_URL
     worker_list = []
     node_solves = 0
     node_fails = 0
+    node_timeouts = 0
     node_restarts = 0
 
     for w_id, w in list(active_workers.items()):
         node_solves += w.solves
         node_fails += w.fails
+        node_timeouts += getattr(w, 'timeouts', 0)
         node_restarts += w.restarts
-        attempts = w.solves + w.fails
+        attempts = w.solves + w.fails + getattr(w, 'timeouts', 0)
         success_rate = (w.solves / attempts * 100.0) if attempts > 0 else 100.0
 
         worker_list.append({
@@ -213,6 +227,7 @@ def send_heartbeat():
             "status": w.status,
             "solves": w.solves,
             "fails": w.fails,
+            "timeouts": getattr(w, 'timeouts', 0),
             "restarts": w.restarts,
             "rate_per_min": w.get_rate_per_min(),
             "success_rate": round(success_rate, 1),
@@ -233,6 +248,7 @@ def send_heartbeat():
         "active_workers_count": sum(1 for w in active_workers.values() if w.status == "RUNNING"),
         "total_solved": node_solves,
         "total_fails": node_fails,
+        "total_timeouts": node_timeouts,
         "total_restarts": node_restarts,
         "workers": worker_list,
         "logs": outgoing_logs
@@ -243,18 +259,29 @@ def send_heartbeat():
     req = urllib.request.Request(
         url,
         data=req_data,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "User-Agent": "BotmasterWorkerNode/3.0"},
         method="POST"
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=3.0) as resp:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
             if resp.status == 200:
                 resp_body = json.loads(resp.read().decode('utf-8'))
                 commands = resp_body.get("commands", [])
                 execute_commands(commands)
             else:
                 log_system(f"[WARNING] Heartbeat rejected by master (HTTP {resp.status})")
+    except urllib.error.HTTPError as e:
+        # If master redirected HTTP -> HTTPS, automatically upgrade MASTER_URL to https://
+        if e.code in (301, 302, 307, 308) and MASTER_URL.startswith("http://"):
+            new_location = e.headers.get("Location")
+            if new_location and new_location.startswith("https://"):
+                log_system(f"[NOTICE] Redirected to HTTPS. Upgrading MASTER_URL to https://...")
+                MASTER_URL = "https://" + MASTER_URL[len("http://"):]
+            else:
+                log_system(f"[ERROR] HTTP Redirect {e.code}: {e.reason}")
+        else:
+            log_system(f"[ERROR] Master responded with HTTP {e.code}: {e.reason}")
     except urllib.error.URLError as e:
         log_system(f"[ERROR] Unable to reach master at {MASTER_URL}: {e.reason}")
     except Exception as e:
@@ -295,14 +322,13 @@ def setup_interactive_config():
         url_input = input(f"Enter Master Dashboard Domain/URL [default: {MASTER_URL}]: ").strip()
         if url_input:
             if not url_input.startswith("http://") and not url_input.startswith("https://"):
-                url_input = f"http://{url_input}"
+                url_input = f"https://{url_input}"
             MASTER_URL = url_input.rstrip("/")
 
         key_input = input(f"Enter Secret Key [default: {SECRET_KEY}]: ").strip()
         if key_input:
             SECRET_KEY = key_input
     except (KeyboardInterrupt, EOFError):
-        # Fallback to defaults instead of exiting when running headless
         pass
 
 def main():

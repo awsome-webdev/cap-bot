@@ -148,10 +148,10 @@
             </div>
             <span id="stat-overall-rate-sec" class="text-xs font-medium text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">0.00/s</span>
           </div>
-          <p class="text-xs text-slate-500 mt-2">Combined throughput rate</p>
+          <p class="text-xs text-slate-500 mt-2">5-minute rolling average throughput</p>
         </div>
 
-        <!-- Failure Rate & Count -->
+        <!-- Failure & Timeout Breakdown -->
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700/80 transition-all shadow-sm">
           <div class="flex items-center justify-between text-slate-400 mb-2">
             <span class="text-xs font-semibold uppercase tracking-wider">Failures & Timeouts</span>
@@ -160,11 +160,18 @@
             </div>
           </div>
           <div class="flex items-baseline justify-between">
-            <span id="stat-fail-rate" class="text-3xl font-extrabold text-white">0.0%</span>
-            <span id="stat-total-fails" class="text-xs font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">0 fails</span>
+            <div class="flex items-baseline space-x-2">
+              <span id="stat-total-fails" class="text-2xl font-extrabold text-rose-400">0</span>
+              <span class="text-xs text-rose-400/80 font-medium">fails</span>
+              <span class="text-slate-600 font-bold">&bull;</span>
+              <span id="stat-total-timeouts" class="text-2xl font-extrabold text-amber-400">0</span>
+              <span class="text-xs text-amber-400/80 font-medium">timeouts</span>
+            </div>
+            <span id="stat-fail-rate" class="text-xs font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">0.0% error</span>
           </div>
-          <div class="w-full bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden">
-            <div id="stat-fail-bar" class="bg-amber-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+          <div class="w-full bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden flex">
+            <div id="stat-fail-bar" class="bg-rose-500 h-1.5 transition-all duration-500" style="width: 0%"></div>
+            <div id="stat-timeout-bar" class="bg-amber-500 h-1.5 transition-all duration-500" style="width: 0%"></div>
           </div>
         </div>
 
@@ -309,6 +316,7 @@
                 <th scope="col" class="py-3.5 px-4 font-semibold">PID / Status</th>
                 <th scope="col" class="py-3.5 px-4 font-semibold">Solves</th>
                 <th scope="col" class="py-3.5 px-4 font-semibold">Fails</th>
+                <th scope="col" class="py-3.5 px-4 font-semibold">Timeouts</th>
                 <th scope="col" class="py-3.5 px-4 font-semibold">Success Rate</th>
                 <th scope="col" class="py-3.5 px-4 font-semibold">Speed (RPM)</th>
                 <th scope="col" class="py-3.5 px-4 font-semibold">Restarts</th>
@@ -460,35 +468,64 @@
 
     // Initialize Chart.js Instances
     function initCharts() {
-      // 1. Throughput Line Chart
+      // 1. Throughput & Error Line Chart (Multi-line)
       const rateCtx = document.getElementById('rateHistoryChart').getContext('2d');
       rateChart = new Chart(rateCtx, {
         type: 'line',
         data: {
           labels: [],
-          datasets: [{
-            label: 'Cluster Solves/Min',
-            data: [],
-            borderColor: '#22c55e',
-            backgroundColor: 'rgba(34, 197, 94, 0.08)',
-            borderWidth: 2,
-            fill: true,
-            tension: 0.35,
-            pointRadius: 2,
-            pointHoverRadius: 5
-          }]
+          datasets: [
+            {
+              label: 'Solves/Min',
+              data: [],
+              borderColor: '#22c55e',
+              backgroundColor: 'rgba(34, 197, 94, 0.08)',
+              borderWidth: 2.5,
+              fill: true,
+              tension: 0.35,
+              pointRadius: 2,
+              pointHoverRadius: 5
+            },
+            {
+              label: 'Fails/Min',
+              data: [],
+              borderColor: '#f43f5e',
+              backgroundColor: 'transparent',
+              borderWidth: 2,
+              borderDash: [4, 4],
+              fill: false,
+              tension: 0.35,
+              pointRadius: 2,
+              pointHoverRadius: 5
+            },
+            {
+              label: 'Timeouts/Min',
+              data: [],
+              borderColor: '#f59e0b',
+              backgroundColor: 'transparent',
+              borderWidth: 2,
+              borderDash: [2, 2],
+              fill: false,
+              tension: 0.35,
+              pointRadius: 2,
+              pointHoverRadius: 5
+            }
+          ]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: { display: false },
+            legend: {
+              display: true,
+              position: 'top',
+              labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 12, padding: 10 }
+            },
             tooltip: {
               mode: 'index',
               intersect: false,
               backgroundColor: '#0f172a',
               titleColor: '#f8fafc',
-              bodyColor: '#4ade80',
               borderColor: '#334155',
               borderWidth: 1
             }
@@ -512,10 +549,10 @@
       accuracyChart = new Chart(accCtx, {
         type: 'doughnut',
         data: {
-          labels: ['Successful Solves', 'Timeouts / Fails'],
+          labels: ['Successful Solves', 'Fails (womp womp)', 'Timeouts'],
           datasets: [{
-            data: [1, 0],
-            backgroundColor: ['#22c55e', '#f59e0b'],
+            data: [1, 0, 0],
+            backgroundColor: ['#22c55e', '#f43f5e', '#f59e0b'],
             borderColor: '#0f172a',
             borderWidth: 3,
             hoverOffset: 4
@@ -820,7 +857,8 @@
               </div>
             </td>
             <td class="py-3 px-4 text-emerald-400 font-bold">${w.solves}</td>
-            <td class="py-3 px-4 text-amber-400 font-medium">${w.fails}</td>
+            <td class="py-3 px-4 text-rose-400 font-medium">${w.fails || 0}</td>
+            <td class="py-3 px-4 text-amber-400 font-medium">${w.timeouts || 0}</td>
             <td class="py-3 px-4">
               <div class="flex items-center gap-2">
                 <span class="font-medium">${(w.success_rate || 0).toFixed(1)}%</span>
@@ -858,8 +896,8 @@
 
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div>
-                <span class="text-slate-500 block">Solves / Fails</span>
-                <span class="font-bold text-emerald-400">${w.solves}</span> / <span class="text-amber-400 font-medium">${w.fails}</span>
+                <span class="text-slate-500 block">Solves / Fails / Timeouts</span>
+                <span class="font-bold text-emerald-400">${w.solves}</span> / <span class="text-rose-400 font-medium">${w.fails || 0}</span> / <span class="text-amber-400 font-medium">${w.timeouts || 0}</span>
               </div>
               <div>
                 <span class="text-slate-500 block">Speed (RPM)</span>
@@ -896,21 +934,24 @@
     function updateCharts(data) {
       if (!rateChart || !accuracyChart) return;
 
-      // 1. Throughput Chart update
+      // 1. Throughput Chart update (Solves, Fails, Timeouts lines)
       if (data.history_labels && data.history_rates) {
         rateChart.data.labels = data.history_labels;
-        rateChart.data.datasets[0].data = data.history_rates;
-        rateChart.update('none'); // smooth update without full animation
+        rateChart.data.datasets[0].data = data.history_rates || [];
+        rateChart.data.datasets[1].data = data.history_fail_rates || [];
+        rateChart.data.datasets[2].data = data.history_timeout_rates || [];
+        rateChart.update('none');
       }
 
       // 2. Accuracy Doughnut update
       const totalS = data.total_solved || 0;
       const totalF = data.total_fails || 0;
+      const totalT = data.total_timeouts || 0;
       
-      if (totalS === 0 && totalF === 0) {
-        accuracyChart.data.datasets[0].data = [1, 0];
+      if (totalS === 0 && totalF === 0 && totalT === 0) {
+        accuracyChart.data.datasets[0].data = [1, 0, 0];
       } else {
-        accuracyChart.data.datasets[0].data = [totalS, totalF];
+        accuracyChart.data.datasets[0].data = [totalS, totalF, totalT];
       }
       accuracyChart.update('none');
     }
