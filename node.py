@@ -116,7 +116,7 @@ class NodeWorkerProcess:
         elif "Timeout" in line:
             self.timeouts += 1
             self.timeout_timestamps.append(time.time())
-        elif "fail" in line.lower():
+        elif "error" in line.lower() or "fail" in line.lower() or "exception" in line.lower():
             self.fails += 1
             self.fail_timestamps.append(time.time())
 
@@ -128,6 +128,24 @@ class NodeWorkerProcess:
         uptime = self.get_uptime_seconds()
         window_minutes = min(max(uptime, 10.0), 300.0) / 60.0
         return float(len(self.solve_timestamps) / window_minutes)
+
+    def get_fail_rate_per_min(self):
+        # 5-minute rolling average fails per minute
+        now = time.time()
+        five_min_ago = now - 300.0
+        self.fail_timestamps = [ts for ts in self.fail_timestamps if ts >= five_min_ago]
+        uptime = self.get_uptime_seconds()
+        window_minutes = min(max(uptime, 10.0), 300.0) / 60.0
+        return float(len(self.fail_timestamps) / window_minutes)
+
+    def get_timeout_rate_per_min(self):
+        # 5-minute rolling average timeouts per minute
+        now = time.time()
+        five_min_ago = now - 300.0
+        self.timeout_timestamps = [ts for ts in self.timeout_timestamps if ts >= five_min_ago]
+        uptime = self.get_uptime_seconds()
+        window_minutes = min(max(uptime, 10.0), 300.0) / 60.0
+        return float(len(self.timeout_timestamps) / window_minutes)
 
     def get_uptime_seconds(self):
         if self.status == "RUNNING":
@@ -230,6 +248,8 @@ def send_heartbeat():
             "timeouts": getattr(w, 'timeouts', 0),
             "restarts": w.restarts,
             "rate_per_min": w.get_rate_per_min(),
+            "fail_rate_per_min": w.get_fail_rate_per_min(),
+            "timeout_rate_per_min": w.get_timeout_rate_per_min(),
             "success_rate": round(success_rate, 1),
             "uptime_seconds": w.get_uptime_seconds(),
             "uptime_formatted": w.format_uptime()
