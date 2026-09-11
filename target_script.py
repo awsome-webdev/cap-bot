@@ -322,6 +322,7 @@ def main():
   if response.status_code == 403:
     fails += 1
     print(f'Fail! (womp womp) ({fails} total fails, {timeouts} total timeouts)', flush=True)
+    return ''
   req = requests.post('https://botme.idk.dunkirk.sh/captchas/verify/cap-default?name=awsome-webdev', headers=headers, json={'token': token})
   print(req.json())
   print(f"[{worker_id}] Performing task iteration...", flush=True)
