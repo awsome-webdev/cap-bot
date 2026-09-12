@@ -315,6 +315,8 @@ def main():
   redeem_url = "https://cap.dunkirk.sh/cbe403f57a/redeem"  # update as needed
 
   response = requests.post(redeem_url, json=redemption_payload, headers=headers)
+  print("Status Code:", response.status_code)
+  print("Response:", response.text)
   if response.status_code == 502:
     timeouts += 1
     print(f"Timeout ({timeouts} total timeouts)", flush=True)
@@ -323,13 +325,35 @@ def main():
     fails += 1
     print(f'Fail! (womp womp) ({fails} total fails, {timeouts} total timeouts)', flush=True)
     return ''
-  req = requests.post('https://botme.idk.dunkirk.sh/captchas/verify/cap-default?name=awsome-webdev', headers=headers, json={'token': token})
-  print(req.json())
+  token2 = response.json()['token']
+  headers = {
+    
+    # Standard HTTP Headers
+    "accept": "*/*",
+    "accept-encoding": "gzip, deflate, br, zstd",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "no-cache",
+    "content-length": "70",
+    "content-type": "application/json",
+    "dnt": "1",
+    "origin": "https://botme.idk.dunkirk.sh",
+    "pragma": "no-cache",
+    "priority": "u=1, i",
+    "referer": "https://botme.idk.dunkirk.sh/captchas/cap-default?name=awsome-webdev",
+    "sec-ch-ua": '"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+  }
+  print({'token' : token2}, flush=True)
+  req = requests.post('https://botme.idk.dunkirk.sh/captchas/verify/cap-default?name=awsome-webdev', headers=headers, json={'token': token2})
+  print(req.json(), flush=True)
   print(f"[{worker_id}] Performing task iteration...", flush=True)
   print(f"Success! Solved {solves} items", flush=True)
   solves +=1
-  print("Status Code:", response.status_code)
-  print("Response:", response.text)
 
 
 
