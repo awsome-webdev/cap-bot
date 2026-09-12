@@ -21,9 +21,30 @@ def solve_rsw_puzzle(x, t, n):
       v = pow(v, 2, n)  
     return v
 
-def resulthex(y):
-   y = hex(y)[2:]
-   return y
+def resulthex(y, n_hex):
+  """Return y as hex WITHOUT the 0x prefix, zero-padded to the modulus width.
+
+  Cap validates RSW solutions by comparing the hex string length/bytes against
+  the modulus N. Dropping leading zeros causes `invalid_solution`.
+  """
+  h = format(y, "x")
+  
+  # Strip optional 0x/0X prefix safely
+  clean = n_hex[2:] if n_hex[:2].lower() == "0x" else n_hex
+  
+  # The width of N in hex characters
+  width = len(clean)
+  
+  # Zero-pad to match N's exact hex character width
+  if len(h) < width:
+    h = h.zfill(width)
+    
+  # Ensure even length if required by byte conversion standards
+  if len(h) % 2 != 0:
+    h = "0" + h
+    
+  return h
+
 
 
 def to_int32(val: int) -> int:
@@ -267,7 +288,13 @@ def main():
     timeouts += 1
     print(f"Timeout ({timeouts} total timeouts)", flush=True)
     return ''
-  data = req.json()
+  data = ''
+  try:
+    data = req.json()
+  except Exception as e:
+    timeouts += 1
+    print(f"Timeout ({timeouts} total timeouts)", flush=True)
+    return ''
   print(f"[{worker_id}] Performing task iteration...", flush=True)
   rsw_payload = None
   instrumentation_blob = None
@@ -293,7 +320,7 @@ def main():
   rsw = solve_rsw_puzzle(str(x), t, str(N))
   script = decompress_cap_blob(instrumentation_blob)
   ins = solve_instrumentation_telemetry(script)
-  y_hex = resulthex(rsw)
+  y_hex = resulthex(rsw, N)
   redemption_payload = {
       "token": token,
       "solutions": [

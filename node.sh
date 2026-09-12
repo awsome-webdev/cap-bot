@@ -27,7 +27,7 @@ else
     echo "[*] Cloning repository into ${INSTALL_DIR}..."
     if [ -d "$INSTALL_DIR" ]; then
         rm -rf "$INSTALL_DIR"
-    }
+    fi
     git clone "$REPO_URL" "$INSTALL_DIR"
     cd "$INSTALL_DIR"
 fi

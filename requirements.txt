@@ -1,6 +1,4 @@
 flask>=3.0.0
 requests>=2.31.0
-selenium>=4.15.0
-undetected-chromedriver>=3.5.0
 pynput>=1.7.6
 psutil>=5.9.0

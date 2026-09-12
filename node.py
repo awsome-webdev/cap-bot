@@ -18,6 +18,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "botmaster-secret")
 NODE_ID = os.environ.get("NODE_ID", f"Node-{socket.gethostname()}-{os.getpid()}")
 HEARTBEAT_INTERVAL_SEC = 1.5
 TARGET_SCRIPT = os.environ.get("TARGET_SCRIPT", "target_script.py")
+GIT_CHECK_INTERVAL_SEC = float(os.environ.get("GIT_CHECK_INTERVAL_SEC", 900.0)) # Default: every 5 minutes
 
 # In-memory storage for local managed workers and logs
 active_workers = {}
@@ -121,7 +122,6 @@ class NodeWorkerProcess:
             self.fail_timestamps.append(time.time())
 
     def get_rate_per_min(self):
-        # 5-minute rolling average solves per minute
         now = time.time()
         five_min_ago = now - 300.0
         self.solve_timestamps = [ts for ts in self.solve_timestamps if ts >= five_min_ago]
@@ -130,7 +130,6 @@ class NodeWorkerProcess:
         return float(len(self.solve_timestamps) / window_minutes)
 
     def get_fail_rate_per_min(self):
-        # 5-minute rolling average fails per minute
         now = time.time()
         five_min_ago = now - 300.0
         self.fail_timestamps = [ts for ts in self.fail_timestamps if ts >= five_min_ago]
@@ -139,7 +138,6 @@ class NodeWorkerProcess:
         return float(len(self.fail_timestamps) / window_minutes)
 
     def get_timeout_rate_per_min(self):
-        # 5-minute rolling average timeouts per minute
         now = time.time()
         five_min_ago = now - 300.0
         self.timeout_timestamps = [ts for ts in self.timeout_timestamps if ts >= five_min_ago]
@@ -223,6 +221,39 @@ def stop_all_local_workers():
         w.stop()
     log_system("Stopped all local workers.")
 
+def git_update_worker():
+    """Background worker thread that periodically checks for and pulls Git updates."""
+    # Wait a bit on startup before checking
+    time.sleep(10.0)
+    
+    while True:
+        try:
+            if os.path.isdir(".git"):
+                log_system("[GIT] Checking repository for remote updates...")
+                result = subprocess.run(
+                    ["git", "pull", "--ff-only"],
+                    capture_output=True,
+                    text=True,
+                    timeout=20
+                )
+                if result.returncode == 0:
+                    output = result.stdout.strip()
+                    if "Already up to date." not in output:
+                        log_system(f"[GIT UPDATE SUCCESS] Pulled new changes:\n{output}")
+                        log_system("[GIT UPDATE] Workers will run updated code on their next restart cycle.")
+                else:
+                    err_msg = result.stderr.strip()
+                    if err_msg:
+                        log_system(f"[GIT WARNING] git pull encountered an issue: {err_msg}")
+            else:
+                log_system("[GIT NOTICE] Current directory is not a git repository. Skipping git pull check.")
+        except subprocess.TimeoutExpired:
+            log_system("[GIT ERROR] git pull timed out.")
+        except Exception as e:
+            log_system(f"[GIT ERROR] Failed to check for git updates: {str(e)}")
+            
+        time.sleep(GIT_CHECK_INTERVAL_SEC)
+
 def send_heartbeat():
     global logs_buffer, MASTER_URL
     worker_list = []
@@ -292,7 +323,6 @@ def send_heartbeat():
             else:
                 log_system(f"[WARNING] Heartbeat rejected by master (HTTP {resp.status})")
     except urllib.error.HTTPError as e:
-        # If master redirected HTTP -> HTTPS, automatically upgrade MASTER_URL to https://
         if e.code in (301, 302, 307, 308) and MASTER_URL.startswith("http://"):
             new_location = e.headers.get("Location")
             if new_location and new_location.startswith("https://"):
@@ -327,7 +357,6 @@ def execute_commands(commands):
 def setup_interactive_config():
     global MASTER_URL, SECRET_KEY
 
-    # If MASTER_URL is explicitly set or if running non-interactively (systemd / no tty), skip prompt
     if "MASTER_URL" in os.environ or not sys.stdin.isatty():
         return
 
@@ -354,6 +383,10 @@ def setup_interactive_config():
 def main():
     setup_interactive_config()
     log_system(f"Connecting Node to Master Control Center at {MASTER_URL}...")
+
+    # Start Git background thread
+    git_thread = threading.Thread(target=git_update_worker, daemon=True)
+    git_thread.start()
 
     # Spawn 1 initial worker process
     spawn_local_worker()
