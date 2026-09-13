@@ -4,7 +4,14 @@ import zlib
 import sys
 import requests
 import time
+import gmpy2
 
+def solve_rsw_puzzle_fast(x, t, n):
+  n_mpz = gmpy2.mpz(n, 16)
+  v = gmpy2.mpz(x, 16)
+  for _ in range(t):
+    v = gmpy2.powmod(v, 2, n_mpz)
+  return int(v)
 
 def solve_rsw_puzzle(x, t, n):
   """Simulates the client-side RSW puzzle solver using sequential modular squaring.
@@ -359,7 +366,7 @@ def main():
   else:
     print("RSW challenge protocol not found in response.")
 
-  rsw = solve_rsw_puzzle(str(x), t, str(N))
+  rsw = solve_rsw_puzzle_fast(str(x), t, str(N))
   y_hex = resulthex(rsw, N)
 
   # Decompress and dynamically solve instrumentation telemetry
