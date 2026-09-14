@@ -401,7 +401,13 @@ def main():
   )
   print("Status Code:", response.status_code)
   print("Response:", response.text)
-  token2 = response.json()['token']
+  token2 = 0
+  try:
+    token2 = response.json()['token']
+  except Exception as e:
+    timeouts += 1
+    print(f"Timeout ({timeouts} total timeouts)", flush=True)
+    return ''
   if response.status_code == 502:
     timeouts += 1
     print(f"Timeout ({timeouts} total timeouts)", flush=True)
