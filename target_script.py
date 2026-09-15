@@ -430,7 +430,7 @@ def main():
       "pragma": "no-cache",
       "priority": "u=1, i",
       "referer": (
-          "https://botme.idk.dunkirk.sh/captchas/cap-default?name=mutual-botting-coalition"
+          "https://botme.idk.dunkirk.sh/captchas/cap-default?name=mutual-awsome-webdev"
       ),
       "sec-ch-ua": (
           '"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"'
@@ -446,7 +446,7 @@ def main():
       ),
   }
 
-  req = requests.post('https://botme.idk.dunkirk.sh/captchas/verify/cap-default?name=mutual-botting-coalition', headers=verify_headers, json={'token': token2})
+  req = requests.post('https://botme.idk.dunkirk.sh/captchas/verify/cap-default?name=awsome-webdev', headers=verify_headers, json={'token': token2})
   print(req.json(), flush=True)
   solves += 1
   print(f"Success! Solved {solves} items", flush=True)
